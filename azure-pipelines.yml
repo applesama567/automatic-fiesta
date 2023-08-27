@@ -1,0 +1,89 @@
+trigger:
+- none
+
+pool:
+  name: Default  # Set the agent pool name
+
+jobs:
+- job: TestConnectionJob
+  displayName: 'Testing Server Connection'
+  steps:
+  - powershell: |
+      $serverIp = "20.211.46.202"
+      $result = Test-NetConnection -ComputerName $serverIp
+
+      if ($result.PingSucceeded) {
+          Write-Host "Server connection successful."
+      } else {
+          Write-Host "Server connection failed. Please reboot VM !!!!"
+          Write-Host "Server connection failed. Please reboot VM !!!!"
+          Write-Host "Server connection failed. Please reboot VM !!!!"
+          exit 1  # Exit with an error code
+      }
+    displayName: 'Test Server Connection'
+
+- job: RestartDockerJob
+  dependsOn: TestConnectionJob
+  displayName: 'Restart docker'
+  steps:
+  - task: CopyFilesOverSSH@0
+    displayName: 'Copy readme'
+    inputs:
+      sshEndpoint: 'it.devopskevin'  # Replace with the actual name of your SSH service connection
+      sourceFolder: '$(Build.SourcesDirectory)'
+      contents: '**'  # Copy all files
+      targetFolder: '/home/kevin/test'
+
+  - task: SSH@0
+    displayName: 'set up permission'
+    inputs:
+      sshEndpoint: 'it.devopskevin'  
+      runOptions: inline
+      inline: |
+        cd /home/kevin/test;
+        dos2unix -q *.sh;
+        chmod -R 777 *.sh;
+
+  - task: SSH@0
+    displayName: 'run script'
+    inputs:
+      sshEndpoint: 'it.devopskevin'  
+      runOptions: inline
+      inline: |
+        sh /home/kevin/test/stop-docker-sh.sh
+
+- job: WaitForTwominutes
+  dependsOn: RestartDockerJob
+  displayName: 'wait 2 minutes'
+  steps:
+
+  - powershell: |
+      Write-Host "Waiting for 2 minutes before retesting connection..."
+      Start-Sleep -Seconds 10  # Wait for 2 minutes
+    displayName: 'Wait 2 minutes'
+
+- job: HealthCheck
+  displayName: 'Running Health Check'
+  dependsOn: WaitForTwominutes
+  steps:
+  - task: PowerShell@2
+    displayName: 'Run ArtiHealthCheck.ps1'
+    inputs:
+      targetType: filePath
+      filePath: ./ArtiHealthCheck.ps1
+
+
+- job: CleanWorkSpace
+  condition: always()
+  steps:
+  - task: DeleteFiles@1
+    inputs:
+      SourceFolder: '$(Build.SourcesDirectory)'
+      Contents: '*'
+      CleanTargetFolder: true
+    displayName: 'Clean Workspace'
+
+
+
+
+  
